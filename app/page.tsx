@@ -176,29 +176,44 @@ export default function RedeemPage() {
 
       try {
         const result = await redeemCodeAction(user.userId, redeemCode);
+
         let statusText = "";
         let statusType: UserStatus = "failed";
 
         if (result.success) {
           const data = result.data;
+
+          // Code hết lượt
           if (
             data?.errorCode === 2117 &&
             data?.message?.includes("usage limit")
           ) {
             statusText = "Code đã hết lượt sử dụng";
-          } else if (data?.errorCode === 2105) {
+          }
+
+          // Tài khoản không tồn tại
+          else if (data?.errorCode === 2105) {
             statusText = "Tài khoản không tồn tại hoặc không online";
             statusType = "failed";
-          } else if (
-            data?.message?.includes("Thành công") ||
-            (data?.data && data?.status === 1)
+          }
+
+          // Thành công
+          else if (
+            data?.message?.includes("Success") || // FIXED
+            data?.status === 0 // FIXED
           ) {
             statusText = "Redeem thành công";
             statusType = "success";
-          } else if (data?.message?.includes("Đã redeem")) {
+          }
+
+          // Đã redeem
+          else if (data?.message?.includes("Đã redeem")) {
             statusText = "Đã redeem";
             statusType = "redeemed";
-          } else {
+          }
+
+          // Trường hợp khác
+          else {
             statusText = data?.message || "Lỗi không xác định";
             statusType = "failed";
           }
@@ -237,6 +252,7 @@ export default function RedeemPage() {
   );
 
   const getStatusBadge = (status: UserStatus) => {
+    console.log("🚀 ~ getStatusBadge ~ status:", status);
     switch (status) {
       case "success":
         return <Badge className="bg-green-500 text-white">Thành công</Badge>;
