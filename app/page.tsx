@@ -368,7 +368,7 @@ export default function RedeemPage() {
                 id="redeem-code"
                 placeholder="NHẬP THÔNG TIN CODE..."
                 value={redeemCode}
-                onChange={(e) => setRedeemCode(e.target.value.toUpperCase())}
+                onChange={(e) => setRedeemCode(e.target.value)}
               />
             </div>
 
