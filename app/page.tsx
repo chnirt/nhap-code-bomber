@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Image from "next/image";
 import {
   Trash2,
@@ -10,6 +10,7 @@ import {
   Edit2,
   UserPlus,
   AlertCircle,
+  Share2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -53,6 +54,14 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { redeemCode as redeemCodeAction } from "./actions";
+import { useRouter, useSearchParams } from "next/navigation";
+import {
+  createShareFromLocal,
+  getShareById,
+  updateShareIfOwner,
+} from "@/services/shareService";
+import { useToast } from "@/hooks/use-toast";
+import { getDeviceId } from "@/utils/device";
 
 type UserStatus = "idle" | "processing" | "success" | "failed" | "redeemed";
 
@@ -68,6 +77,7 @@ export default function RedeemPage() {
   const [redeemCode, setRedeemCode] = useState("BOMBERPC");
   const [userIdInput, setUserIdInput] = useState("");
   const [userList, setUserList] = useState<UserData[]>([]);
+  const [originalUserList, setOriginalUserList] = useState<UserData[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [duplicateError, setDuplicateError] = useState<string | null>(null);
@@ -75,6 +85,12 @@ export default function RedeemPage() {
   const [editingUser, setEditingUser] = useState<UserData | null>(null);
   const [editValue, setEditValue] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const searchParams = useSearchParams();
+  const shareIdFromUrl = searchParams.get("id");
+  const [shareId, setShareId] = useState<string | null>(null);
+  const [readonly, setReadonly] = useState(false);
+  const { toast } = useToast();
+  const router = useRouter();
 
   useEffect(() => {
     setIsLoading(true); // bắt đầu loading
@@ -83,6 +99,8 @@ export default function RedeemPage() {
       try {
         const parsed = JSON.parse(savedData);
         if (parsed.userList) setUserList(parsed.userList);
+        if (parsed.userList) setOriginalUserList(parsed.userList);
+
         if (parsed.redeemCode) setRedeemCode(parsed.redeemCode);
       } catch (e) {
         console.error("Failed to load data", e);
@@ -91,12 +109,32 @@ export default function RedeemPage() {
     setIsLoading(false); // kết thúc loading
   }, []);
 
+  // useEffect(() => {
+  //   localStorage.setItem(
+  //     "redeem_app_data",
+  //     JSON.stringify({ userList, redeemCode })
+  //   );
+  // }, [userList, redeemCode]);
+
   useEffect(() => {
-    localStorage.setItem(
-      "redeem_app_data",
-      JSON.stringify({ userList, redeemCode })
-    );
-  }, [userList, redeemCode]);
+    if (!shareIdFromUrl) return;
+
+    (async () => {
+      try {
+        const data: any = await getShareById(shareIdFromUrl);
+        setShareId(shareIdFromUrl);
+        setRedeemCode(data.redeemCode);
+        setUserList(data.userList);
+        setOriginalUserList(data.userList);
+
+        const deviceId = getDeviceId();
+        const isOwner = data.ownerDeviceId === deviceId;
+        setReadonly(!isOwner);
+      } catch (e) {
+        alert("Link chia sẻ không hợp lệ hoặc đã bị xóa");
+      }
+    })();
+  }, [shareIdFromUrl]);
 
   const handleAddUsers = () => {
     setDuplicateError(null);
@@ -183,39 +221,42 @@ export default function RedeemPage() {
         if (result.success) {
           const data = result.data;
 
-          // Code hết lượt
-          if (
-            data?.errorCode === 2117 &&
-            data?.message?.includes("usage limit")
-          ) {
-            statusText = "Code đã hết lượt sử dụng";
-          }
+          switch (data?.errorCode) {
+            // Thành công
+            case 1: {
+              statusText = "Redeem thành công";
+              statusType = "success";
+              break;
+            }
 
-          // Tài khoản không tồn tại
-          else if (data?.errorCode === 2105) {
-            statusText = "Tài khoản không tồn tại hoặc không online";
-            statusType = "failed";
-          }
+            // Code không tồn tại
+            case 2106: {
+              statusText = "Mã không tồn tại hoặc không hợp lệ";
+              statusType = "failed";
+              break;
+            }
 
-          // Thành công
-          else if (
-            data?.message?.includes("Success") || // FIXED
-            data?.status === 0 // FIXED
-          ) {
-            statusText = "Redeem thành công";
-            statusType = "success";
-          }
+            // Tài khoản không tồn tại
+            case 2105: {
+              statusText = "Tài khoản không tồn tại hoặc hiện không online";
+              statusType = "failed";
+              break;
+            }
 
-          // Đã redeem
-          else if (data?.message?.includes("Đã redeem")) {
-            statusText = "Đã redeem";
-            statusType = "redeemed";
-          }
+            // Code đã được nạp / hết lượt
+            case 2117: {
+              statusText =
+                "Mã đã được nạp trước đó và hiện đã hết lượt sử dụng";
+              statusType = "redeemed";
+              break;
+            }
 
-          // Trường hợp khác
-          else {
-            statusText = data?.message || "Lỗi không xác định";
-            statusType = "failed";
+            // Các mã lỗi khác
+            default: {
+              statusText = data?.message || "Lỗi không xác định";
+              statusType = "failed";
+              break;
+            }
           }
         } else {
           statusText = "Lỗi kết nối: " + result.error;
@@ -252,7 +293,7 @@ export default function RedeemPage() {
   );
 
   const getStatusBadge = (status: UserStatus) => {
-    console.log("🚀 ~ getStatusBadge ~ status:", status);
+    // console.log("🚀 ~ getStatusBadge ~ status:", status);
     switch (status) {
       case "success":
         return <Badge className="bg-green-500 text-white">Thành công</Badge>;
@@ -271,12 +312,45 @@ export default function RedeemPage() {
     }
   };
 
+  const isDataChanged = useMemo(() => {
+    return JSON.stringify(userList) !== JSON.stringify(originalUserList);
+  }, [userList, originalUserList]);
+
+  const handleShare = async () => {
+    let id = shareId || localStorage.getItem("shareId");
+
+    if (!id) {
+      id = await createShareFromLocal();
+      localStorage.setItem("shareId", id);
+    } else {
+      await updateShareIfOwner(id, { redeemCode, userList });
+    }
+
+    setShareId(id);
+
+    // Quan trọng: cập nhật lại bản gốc
+    setOriginalUserList(userList);
+
+    const link = `${window.location.origin}?id=${id}`;
+    await navigator.clipboard.writeText(link);
+
+    toast({
+      title: "Đã cập nhật link chia sẻ",
+      description: "Dữ liệu mới đã được đồng bộ",
+    });
+  };
+
   return (
     <div className="min-h-screen bg-[#DFF4FD] p-4 md:p-8 font-sans">
       <div className="max-w-5xl mx-auto space-y-6">
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
+          <div
+            className="flex items-center gap-3"
+            onClick={() => {
+              window.location.href = "/";
+            }}
+          >
             <div className="relative h-16 w-16 rounded-2xl overflow-hidden shadow-lg border-2 border-white">
               <Image src="/logo.png" alt="Logo" fill className="object-cover" />
             </div>
@@ -290,9 +364,9 @@ export default function RedeemPage() {
             </div>
           </div>
 
-          <div className="flex gap-2 w-full md:w-auto items-end">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:flex gap-2 w-full md:w-auto">
             <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-              <DialogTrigger asChild disabled={isProcessing}>
+              <DialogTrigger asChild disabled={isProcessing || readonly}>
                 <Button
                   variant="outline"
                   className="flex-1 md:flex-none font-semibold"
@@ -355,6 +429,17 @@ export default function RedeemPage() {
                 </>
               )}
             </Button>
+
+            {!readonly && (
+              <Button
+                variant="outline"
+                onClick={handleShare}
+                disabled={isProcessing || readonly}
+              >
+                <Share2 className="mr-2 h-4 w-4" />
+                {isDataChanged ? "Cập nhật link chia sẻ" : "Chia sẻ"}
+              </Button>
+            )}
           </div>
         </div>
 
@@ -369,6 +454,7 @@ export default function RedeemPage() {
                 placeholder="NHẬP THÔNG TIN CODE..."
                 value={redeemCode}
                 onChange={(e) => setRedeemCode(e.target.value)}
+                disabled={isProcessing}
               />
             </div>
 
@@ -398,6 +484,7 @@ export default function RedeemPage() {
                 className="pl-9"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
+                disabled={isProcessing}
               />
             </div>
           </CardHeader>
@@ -407,9 +494,13 @@ export default function RedeemPage() {
                 <TableRow>
                   <TableHead className="w-[50px] pl-6">STT</TableHead>
                   <TableHead>User ID</TableHead>
-                  <TableHead className="w-[130px]">Trạng thái</TableHead>
-                  <TableHead className="">Chi tiết</TableHead>
-                  <TableHead className="w-[150px]">Thời gian</TableHead>
+                  <TableHead className="w-[100px]">Trạng thái</TableHead>
+                  <TableHead className="truncate max-w-[250px]">
+                    Chi tiết
+                  </TableHead>
+                  <TableHead className="text-xs text-muted-foreground">
+                    Thời gian
+                  </TableHead>
                   <TableHead className="text-right pr-6">Thao tác</TableHead>
                 </TableRow>
               </TableHeader>
@@ -440,9 +531,11 @@ export default function RedeemPage() {
                 ) : (
                   filteredUsers.map((user, index) => (
                     <TableRow key={user.id}>
-                      <TableCell className="pl-6">{index + 1}</TableCell>
+                      <TableCell className="w-[50px] pl-6">
+                        {index + 1}
+                      </TableCell>
                       <TableCell>{user.userId}</TableCell>
-                      <TableCell className="w-[130px]">
+                      <TableCell className="w-[100px]">
                         {getStatusBadge(user.status)}
                       </TableCell>
                       <TableCell className="truncate max-w-[250px]">
@@ -457,11 +550,15 @@ export default function RedeemPage() {
                           open={editingUser?.id === user.id}
                           onOpenChange={(open) => !open && setEditingUser(null)}
                         >
-                          <DialogTrigger asChild disabled={isProcessing}>
+                          <DialogTrigger
+                            asChild
+                            disabled={isProcessing || readonly}
+                          >
                             <Button
                               variant="ghost"
                               size="icon"
                               onClick={() => openEditDialog(user)}
+                              disabled={isProcessing || readonly}
                             >
                               <Edit2 className="h-4 w-4" />
                             </Button>
@@ -496,7 +593,10 @@ export default function RedeemPage() {
 
                         {/* Delete */}
                         <AlertDialog>
-                          <AlertDialogTrigger asChild disabled={isProcessing}>
+                          <AlertDialogTrigger
+                            asChild
+                            disabled={isProcessing || readonly}
+                          >
                             <Button variant="ghost" size="icon">
                               <Trash2 className="h-4 w-4" />
                             </Button>
