@@ -109,12 +109,12 @@ export default function RedeemPage() {
     setIsLoading(false); // kết thúc loading
   }, []);
 
-  // useEffect(() => {
-  //   localStorage.setItem(
-  //     "redeem_app_data",
-  //     JSON.stringify({ userList, redeemCode })
-  //   );
-  // }, [userList, redeemCode]);
+  useEffect(() => {
+    localStorage.setItem(
+      "redeem_app_data",
+      JSON.stringify({ userList, redeemCode })
+    );
+  }, [userList, redeemCode]);
 
   useEffect(() => {
     if (!shareIdFromUrl) return;
@@ -316,6 +316,26 @@ export default function RedeemPage() {
     return JSON.stringify(userList) !== JSON.stringify(originalUserList);
   }, [userList, originalUserList]);
 
+  const copyToClipboard = async (text: string) => {
+    // Modern API (Chrome, Android, desktop)
+    if (navigator.clipboard && window.isSecureContext) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch {}
+    }
+
+    // iOS Safari fallback
+    const input = document.createElement("input");
+    input.value = text;
+    document.body.appendChild(input);
+    input.select();
+    input.setSelectionRange(0, 99999); // iOS fix
+    document.execCommand("copy");
+    document.body.removeChild(input);
+    return true;
+  };
+
   const handleShare = async () => {
     let id = shareId || localStorage.getItem("shareId");
 
@@ -332,11 +352,13 @@ export default function RedeemPage() {
     setOriginalUserList(userList);
 
     const link = `${window.location.origin}?id=${id}`;
-    await navigator.clipboard.writeText(link);
+
+    // ⚠️ COPY NGAY – có fallback cho iPhone
+    await copyToClipboard(link);
 
     toast({
       title: "Đã cập nhật link chia sẻ",
-      description: "Dữ liệu mới đã được đồng bộ",
+      description: "Link đã được sao chép & dữ liệu đã đồng bộ",
     });
   };
 
